@@ -39,10 +39,10 @@ import {decorateMany, forceUpdate, restoreMany} from './utils';
 
 import type {
   DevToolsHook,
-  GetFiberIDForNative,
+  GetElementIDForHostInstance,
   InspectedElementPayload,
   InstanceAndStyle,
-  NativeType,
+  HostInstance,
   PathFrame,
   PathMatch,
   RendererInterface,
@@ -142,39 +142,48 @@ export function attach(
   const internalInstanceToRootIDMap: WeakMap<InternalInstance, number> =
     new WeakMap();
 
-  let getInternalIDForNative: GetFiberIDForNative =
-    ((null: any): GetFiberIDForNative);
-  let findNativeNodeForInternalID: (id: number) => ?NativeType;
-  let getFiberForNative = (node: NativeType) => {
+  let getElementIDForHostInstance: GetElementIDForHostInstance =
+    ((null: any): GetElementIDForHostInstance);
+  let findHostInstanceForInternalID: (id: number) => ?HostInstance;
+  let getNearestMountedHostInstance = (
+    node: HostInstance,
+  ): null | HostInstance => {
     // Not implemented.
     return null;
   };
 
   if (renderer.ComponentTree) {
-    getInternalIDForNative = (node, findNearestUnfilteredAncestor) => {
+    getElementIDForHostInstance = (node, findNearestUnfilteredAncestor) => {
       const internalInstance =
         renderer.ComponentTree.getClosestInstanceFromNode(node);
       return internalInstanceToIDMap.get(internalInstance) || null;
     };
-    findNativeNodeForInternalID = (id: number) => {
+    findHostInstanceForInternalID = (id: number) => {
       const internalInstance = idToInternalInstanceMap.get(id);
       return renderer.ComponentTree.getNodeFromInstance(internalInstance);
     };
-    getFiberForNative = (node: NativeType) => {
-      return renderer.ComponentTree.getClosestInstanceFromNode(node);
+    getNearestMountedHostInstance = (
+      node: HostInstance,
+    ): null | HostInstance => {
+      const internalInstance =
+        renderer.ComponentTree.getClosestInstanceFromNode(node);
+      if (internalInstance != null) {
+        return renderer.ComponentTree.getNodeFromInstance(internalInstance);
+      }
+      return null;
     };
   } else if (renderer.Mount.getID && renderer.Mount.getNode) {
-    getInternalIDForNative = (node, findNearestUnfilteredAncestor) => {
+    getElementIDForHostInstance = (node, findNearestUnfilteredAncestor) => {
       // Not implemented.
       return null;
     };
-    findNativeNodeForInternalID = (id: number) => {
+    findHostInstanceForInternalID = (id: number) => {
       // Not implemented.
       return null;
     };
   }
 
-  function getDisplayNameForFiberID(id: number): string | null {
+  function getDisplayNameForElementID(id: number): string | null {
     const internalInstance = idToInternalInstanceMap.get(id);
     return internalInstance ? getData(internalInstance).displayName : null;
   }
@@ -773,12 +782,10 @@ export function attach(
     let owners = null;
     let props = null;
     let state = null;
-    let source = null;
 
     const element = internalInstance._currentElement;
     if (element !== null) {
       props = element.props;
-      source = element._source != null ? element._source : null;
 
       let owner = element._owner;
       if (owner) {
@@ -830,6 +837,7 @@ export function attach(
 
       // Can view component source location.
       canViewSource: type === ElementTypeClass || type === ElementTypeFunction,
+      source: null,
 
       // Only legacy context exists in legacy versions.
       hasLegacyContext: true,
@@ -850,9 +858,6 @@ export function attach(
 
       // List of owners
       owners,
-
-      // Location of component in source code.
-      source,
 
       rootType: null,
       rendererPackageName: null,
@@ -888,9 +893,9 @@ export function attach(
     if (result.context !== null) {
       console.log('Context:', result.context);
     }
-    const nativeNode = findNativeNodeForInternalID(id);
-    if (nativeNode !== null) {
-      console.log('Node:', nativeNode);
+    const hostInstance = findHostInstanceForInternalID(id);
+    if (hostInstance !== null) {
+      console.log('Node:', hostInstance);
     }
     if (window.chrome || /firefox/i.test(navigator.userAgent)) {
       console.log(
@@ -1089,11 +1094,11 @@ export function attach(
     // Not implemented
   }
 
-  function clearErrorsForFiberID(id: number) {
+  function clearErrorsForElementID(id: number) {
     // Not implemented
   }
 
-  function clearWarningsForFiberID(id: number) {
+  function clearWarningsForElementID(id: number) {
     // Not implemented
   }
 
@@ -1101,26 +1106,26 @@ export function attach(
 
   function unpatchConsoleForStrictMode() {}
 
-  function hasFiberWithId(id: number): boolean {
+  function hasElementWithId(id: number): boolean {
     return idToInternalInstanceMap.has(id);
   }
 
   return {
     clearErrorsAndWarnings,
-    clearErrorsForFiberID,
-    clearWarningsForFiberID,
+    clearErrorsForElementID,
+    clearWarningsForElementID,
     cleanup,
     getSerializedElementValueByPath,
     deletePath,
     flushInitialOperations,
     getBestMatchForTrackedPath,
-    getDisplayNameForFiberID,
-    getFiberForNative,
-    getFiberIDForNative: getInternalIDForNative,
+    getDisplayNameForElementID,
+    getNearestMountedHostInstance,
+    getElementIDForHostInstance,
     getInstanceAndStyle,
-    findNativeNodesForFiberID: (id: number) => {
-      const nativeNode = findNativeNodeForInternalID(id);
-      return nativeNode == null ? null : [nativeNode];
+    findHostInstancesForElementID: (id: number) => {
+      const hostInstance = findHostInstanceForInternalID(id);
+      return hostInstance == null ? null : [hostInstance];
     },
     getOwnersList,
     getPathForElement,
@@ -1128,7 +1133,7 @@ export function attach(
     handleCommitFiberRoot,
     handleCommitFiberUnmount,
     handlePostCommitFiberRoot,
-    hasFiberWithId,
+    hasElementWithId,
     inspectElement,
     logElementToConsole,
     overrideError,

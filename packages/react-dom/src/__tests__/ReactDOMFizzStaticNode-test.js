@@ -63,15 +63,9 @@ describe('ReactDOMFizzStaticNode', () => {
       </html>,
     );
     const prelude = await readContent(result.prelude);
-    if (gate(flags => flags.enableFloat)) {
-      expect(prelude).toMatchInlineSnapshot(
-        `"<!DOCTYPE html><html><head></head><body>hello world</body></html>"`,
-      );
-    } else {
-      expect(prelude).toMatchInlineSnapshot(
-        `"<!DOCTYPE html><html><body>hello world</body></html>"`,
-      );
-    }
+    expect(prelude).toMatchInlineSnapshot(
+      `"<!DOCTYPE html><html><head></head><body>hello world</body></html>"`,
+    );
   });
 
   // @gate experimental
@@ -117,9 +111,7 @@ describe('ReactDOMFizzStaticNode', () => {
 
     const result = await resultPromise;
     const prelude = await readContent(result.prelude);
-    expect(prelude).toMatchInlineSnapshot(
-      `"<div><!--$-->Done<!-- --><!--/$--></div>"`,
-    );
+    expect(prelude).toMatchInlineSnapshot(`"<div><!--$-->Done<!--/$--></div>"`);
   });
 
   // @gate experimental

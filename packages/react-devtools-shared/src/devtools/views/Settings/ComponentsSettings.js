@@ -349,8 +349,8 @@ export default function ComponentsSettings(_: {}): React.Node {
                     componentFilter.isValid === false
                       ? 'Filter invalid'
                       : componentFilter.isEnabled
-                      ? 'Filter enabled'
-                      : 'Filter disabled'
+                        ? 'Filter enabled'
+                        : 'Filter disabled'
                   }>
                   <ToggleIcon
                     isEnabled={componentFilter.isEnabled}
@@ -374,7 +374,9 @@ export default function ComponentsSettings(_: {}): React.Node {
                       ): any): ComponentFilterType),
                     )
                   }>
-                  <option value={ComponentFilterLocation}>location</option>
+                  {/* TODO: currently disabled, need find a new way of doing this
+                    <option value={ComponentFilterLocation}>location</option>
+                  */}
                   <option value={ComponentFilterDisplayName}>name</option>
                   <option value={ComponentFilterElementType}>type</option>
                   <option value={ComponentFilterHOC}>hoc</option>
