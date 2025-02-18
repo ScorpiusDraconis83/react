@@ -16,6 +16,7 @@ import type {
   Usable,
   ReactCustomFormAction,
   Awaited,
+  StartGesture,
 } from 'shared/ReactTypes';
 
 import type {ResumableState} from './ReactFizzConfig';
@@ -39,10 +40,8 @@ import {
 import {createFastHash} from './ReactServerStreamConfig';
 
 import {
-  enableCache,
   enableUseEffectEventHook,
-  enableUseMemoCacheHook,
-  enableAsyncActions,
+  enableSwipeTransition,
 } from 'shared/ReactFeatureFlags';
 import is from 'shared/objectIs';
 import {
@@ -792,12 +791,25 @@ function useCacheRefresh(): <T>(?() => T, ?T) => void {
   return unsupportedRefresh;
 }
 
-function useMemoCache(size: number): Array<any> {
+function useMemoCache(size: number): Array<mixed> {
   const data = new Array<any>(size);
   for (let i = 0; i < size; i++) {
     data[i] = REACT_MEMO_CACHE_SENTINEL;
   }
   return data;
+}
+
+function unsupportedStartGesture() {
+  throw new Error('startGesture cannot be called during server rendering.');
+}
+
+function useSwipeTransition<T>(
+  previous: T,
+  current: T,
+  next: T,
+): [T, StartGesture] {
+  resolveCurrentlyRenderingComponent();
+  return [current, unsupportedStartGesture];
 }
 
 function noop(): void {}
@@ -832,43 +844,46 @@ export const HooksDispatcher: Dispatcher = supportsClientAPIs
       useId,
       // Subscriptions are not setup in a server environment.
       useSyncExternalStore,
+      useOptimistic,
+      useActionState,
+      useFormState: useActionState,
+      useHostTransitionStatus,
+      useMemoCache,
+      useCacheRefresh,
     }
   : {
       readContext,
       use,
+      useCallback,
       useContext,
+      useEffect: clientHookNotSupported,
+      useImperativeHandle: clientHookNotSupported,
+      useInsertionEffect: clientHookNotSupported,
+      useLayoutEffect: clientHookNotSupported,
       useMemo,
       useReducer: clientHookNotSupported,
       useRef: clientHookNotSupported,
       useState: clientHookNotSupported,
-      useInsertionEffect: clientHookNotSupported,
-      useLayoutEffect: clientHookNotSupported,
-      useCallback,
-      useImperativeHandle: clientHookNotSupported,
-      useEffect: clientHookNotSupported,
       useDebugValue: noop,
       useDeferredValue: clientHookNotSupported,
       useTransition: clientHookNotSupported,
-      useId,
       useSyncExternalStore: clientHookNotSupported,
+      useId,
+      useHostTransitionStatus,
+      useFormState: useActionState,
+      useActionState,
+      useOptimistic,
+      useMemoCache,
+      useCacheRefresh,
     };
 
-if (enableCache) {
-  HooksDispatcher.useCacheRefresh = useCacheRefresh;
-}
 if (enableUseEffectEventHook) {
   HooksDispatcher.useEffectEvent = useEffectEvent;
 }
-if (enableUseMemoCacheHook) {
-  HooksDispatcher.useMemoCache = useMemoCache;
-}
-if (enableAsyncActions) {
-  HooksDispatcher.useHostTransitionStatus = useHostTransitionStatus;
-}
-if (enableAsyncActions) {
-  HooksDispatcher.useOptimistic = useOptimistic;
-  HooksDispatcher.useFormState = useActionState;
-  HooksDispatcher.useActionState = useActionState;
+if (enableSwipeTransition) {
+  HooksDispatcher.useSwipeTransition = supportsClientAPIs
+    ? useSwipeTransition
+    : clientHookNotSupported;
 }
 
 export let currentResumableState: null | ResumableState = (null: any);

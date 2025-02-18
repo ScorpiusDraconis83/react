@@ -46,7 +46,7 @@ import {
 type ReactMarkupNodeList =
   // This is the intersection of ReactNodeList and ReactClientValue minus
   // Client/ServerReferences.
-  | React$Element<React$AbstractComponent<any, any>>
+  | React$Element<React$ComponentType<any>>
   | LazyComponent<ReactMarkupNodeList, any>
   | React$Element<string>
   | string
@@ -75,7 +75,7 @@ function noServerCallOrFormAction() {
   );
 }
 
-export function renderToHTML(
+export function experimental_renderToHTML(
   children: ReactMarkupNodeList,
   options?: MarkupOptions,
 ): Promise<string> {
@@ -173,6 +173,7 @@ export function renderToHTML(
       undefined,
     );
     const flightResponse = createFlightResponse(
+      null,
       null,
       null,
       noServerCallOrFormAction,

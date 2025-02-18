@@ -49,6 +49,7 @@
     "react-dev-utils": "^12.0.1",
     "react-dom": "experimental",
     "react-refresh": "^0.11.0",
+    "react-server-dom-webpack": "experimental",
     "resolve": "^1.20.0",
     "resolve-url-loader": "^4.0.0",
     "sass-loader": "^12.3.0",
@@ -64,7 +65,7 @@
     "webpack-manifest-plugin": "^4.0.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.41.2"
+    "@playwright/test": "^1.49.1"
   },
   "scripts": {
     "predev": "cp -r ../../build/oss-experimental/* ./node_modules/",

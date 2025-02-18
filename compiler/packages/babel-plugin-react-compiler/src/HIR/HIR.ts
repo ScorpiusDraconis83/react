@@ -12,6 +12,7 @@ import {assertExhaustive} from '../Utils/utils';
 import {Environment, ReactFunctionType} from './Environment';
 import {HookKind} from './ObjectShape';
 import {Type, makeType} from './Types';
+import {z} from 'zod';
 
 /*
  * *******************************************************************************************
@@ -107,16 +108,7 @@ export type ReactiveValue =
   | ReactiveLogicalValue
   | ReactiveSequenceValue
   | ReactiveTernaryValue
-  | ReactiveOptionalCallValue
-  | ReactiveFunctionValue;
-
-export type ReactiveFunctionValue = {
-  kind: 'ReactiveFunctionValue';
-  fn: ReactiveFunction;
-  dependencies: Array<Place>;
-  returnType: t.FlowType | t.TSType | null;
-  loc: SourceLocation;
-};
+  | ReactiveOptionalCallValue;
 
 export type ReactiveLogicalValue = {
   kind: 'LogicalExpression';
@@ -284,7 +276,8 @@ export type HIRFunction = {
   fnType: ReactFunctionType;
   env: Environment;
   params: Array<Place | SpreadPattern>;
-  returnType: t.FlowType | t.TSType | null;
+  returnTypeAnnotation: t.FlowType | t.TSType | null;
+  returnType: Type;
   context: Array<Place>;
   effects: Array<FunctionEffect> | null;
   body: HIR;
@@ -365,6 +358,7 @@ export type BasicBlock = {
   preds: Set<BlockId>;
   phis: Set<Phi>;
 };
+export type TBasicBlock<T extends Terminal> = BasicBlock & {terminal: T};
 
 /*
  * Terminal nodes generally represent statements that affect control flow, such as
@@ -489,7 +483,7 @@ export type BranchTerminal = {
   alternate: BlockId;
   id: InstructionId;
   loc: SourceLocation;
-  fallthrough?: never;
+  fallthrough: BlockId;
 };
 
 export type SwitchTerminal = {
@@ -719,7 +713,6 @@ export type ObjectProperty = {
 };
 
 export type LoweredFunction = {
-  dependencies: Array<Place>;
   func: HIRFunction;
 };
 
@@ -744,6 +737,9 @@ export enum InstructionKind {
 
   // hoisted const declarations
   HoistedLet = 'HoistedLet',
+
+  HoistedFunction = 'HoistedFunction',
+  Function = 'Function',
 }
 
 function _staticInvariantInstructionValueHasLocation(
@@ -755,9 +751,8 @@ function _staticInvariantInstructionValueHasLocation(
 
 export type Phi = {
   kind: 'Phi';
-  id: Identifier;
-  operands: Map<BlockId, Identifier>;
-  type: Type;
+  place: Place;
+  operands: Map<BlockId, Place>;
 };
 
 /**
@@ -775,7 +770,7 @@ export type ManualMemoDependency = {
         value: Place;
       }
     | {kind: 'Global'; identifierName: string};
-  path: Array<string>;
+  path: DependencyPath;
 };
 
 export type StartMemoize = {
@@ -835,6 +830,11 @@ export type LoadLocal = {
   place: Place;
   loc: SourceLocation;
 };
+export type LoadContext = {
+  kind: 'LoadContext';
+  place: Place;
+  loc: SourceLocation;
+};
 
 /*
  * The value of a given instruction. Note that values are not recursive: complex
@@ -847,11 +847,7 @@ export type LoadLocal = {
 
 export type InstructionValue =
   | LoadLocal
-  | {
-      kind: 'LoadContext';
-      place: Place;
-      loc: SourceLocation;
-    }
+  | LoadContext
   | {
       kind: 'DeclareLocal';
       lvalue: LValue;
@@ -864,18 +860,13 @@ export type InstructionValue =
         kind:
           | InstructionKind.Let
           | InstructionKind.HoistedConst
-          | InstructionKind.HoistedLet;
+          | InstructionKind.HoistedLet
+          | InstructionKind.HoistedFunction;
         place: Place;
       };
       loc: SourceLocation;
     }
-  | {
-      kind: 'StoreLocal';
-      lvalue: LValue;
-      value: Place;
-      type: t.FlowType | t.TSType | null;
-      loc: SourceLocation;
-    }
+  | StoreLocal
   | {
       kind: 'StoreContext';
       lvalue: {
@@ -920,15 +911,7 @@ export type InstructionValue =
       type: Type;
       loc: SourceLocation;
     }
-  | {
-      kind: 'JsxExpression';
-      tag: Place | BuiltinTag;
-      props: Array<JsxAttribute>;
-      children: Array<Place> | null; // null === no children
-      loc: SourceLocation;
-      openingLoc: SourceLocation;
-      closingLoc: SourceLocation;
-    }
+  | JsxExpression
   | {
       kind: 'ObjectExpression';
       properties: Array<ObjectProperty | SpreadPattern>;
@@ -1074,6 +1057,16 @@ export type InstructionValue =
       loc: SourceLocation;
     };
 
+export type JsxExpression = {
+  kind: 'JsxExpression';
+  tag: Place | BuiltinTag;
+  props: Array<JsxAttribute>;
+  children: Array<Place> | null; // null === no children
+  loc: SourceLocation;
+  openingLoc: SourceLocation;
+  closingLoc: SourceLocation;
+};
+
 export type JsxAttribute =
   | {kind: 'JsxSpreadAttribute'; argument: Place}
   | {kind: 'JsxAttribute'; name: string; place: Place};
@@ -1118,6 +1111,13 @@ export type Primitive = {
 
 export type JSXText = {kind: 'JSXText'; value: string; loc: SourceLocation};
 
+export type StoreLocal = {
+  kind: 'StoreLocal';
+  lvalue: LValue;
+  value: Place;
+  type: t.FlowType | t.TSType | null;
+  loc: SourceLocation;
+};
 export type PropertyLoad = {
   kind: 'PropertyLoad';
   object: Place;
@@ -1231,6 +1231,17 @@ export function makeTemporaryIdentifier(
     scope: null,
     type: makeType(),
     loc,
+  };
+}
+
+export function forkTemporaryIdentifier(
+  id: IdentifierId,
+  source: Identifier,
+): Identifier {
+  return {
+    ...source,
+    mutableRange: {start: makeInstructionId(0), end: makeInstructionId(0)},
+    id,
   };
 }
 
@@ -1360,6 +1371,15 @@ export enum ValueKind {
   Context = 'context',
 }
 
+export const ValueKindSchema = z.enum([
+  ValueKind.MaybeFrozen,
+  ValueKind.Frozen,
+  ValueKind.Primitive,
+  ValueKind.Global,
+  ValueKind.Mutable,
+  ValueKind.Context,
+]);
+
 // The effect with which a value is modified.
 export enum Effect {
   // Default value: not allowed after lifetime inference
@@ -1388,6 +1408,15 @@ export enum Effect {
   // This reference may alias to (mutate) the value
   Store = 'store',
 }
+
+export const EffectSchema = z.enum([
+  Effect.Read,
+  Effect.Mutate,
+  Effect.ConditionallyMutate,
+  Effect.Capture,
+  Effect.Store,
+  Effect.Freeze,
+]);
 
 export function isMutableEffect(
   effect: Effect,
@@ -1473,10 +1502,37 @@ export type ReactiveScopeDeclaration = {
   scope: ReactiveScope; // the scope in which the variable was originally declared
 };
 
+export type DependencyPathEntry = {property: string; optional: boolean};
+export type DependencyPath = Array<DependencyPathEntry>;
 export type ReactiveScopeDependency = {
   identifier: Identifier;
-  path: Array<string>;
+  path: DependencyPath;
 };
+
+export function areEqualPaths(a: DependencyPath, b: DependencyPath): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (item, ix) =>
+        item.property === b[ix].property && item.optional === b[ix].optional,
+    )
+  );
+}
+
+export function getPlaceScope(
+  id: InstructionId,
+  place: Place,
+): ReactiveScope | null {
+  const scope = place.identifier.scope;
+  if (scope !== null && isScopeActive(scope, id)) {
+    return scope;
+  }
+  return null;
+}
+
+function isScopeActive(scope: ReactiveScope, id: InstructionId): boolean {
+  return id >= scope.range.start && id < scope.range.end;
+}
 
 /*
  * Simulated opaque type for BlockIds to prevent using normal numbers as block ids
@@ -1579,6 +1635,10 @@ export function isArrayType(id: Identifier): boolean {
   return id.type.kind === 'Object' && id.type.shapeId === 'BuiltInArray';
 }
 
+export function isPropsType(id: Identifier): boolean {
+  return id.type.kind === 'Object' && id.type.shapeId === 'BuiltInProps';
+}
+
 export function isRefValueType(id: Identifier): boolean {
   return id.type.kind === 'Object' && id.type.shapeId === 'BuiltInRefValue';
 }
@@ -1589,6 +1649,10 @@ export function isUseRefType(id: Identifier): boolean {
 
 export function isUseStateType(id: Identifier): boolean {
   return id.type.kind === 'Object' && id.type.shapeId === 'BuiltInUseState';
+}
+
+export function isRefOrRefValue(id: Identifier): boolean {
+  return isUseRefType(id) || isRefValueType(id);
 }
 
 export function isSetStateType(id: Identifier): boolean {

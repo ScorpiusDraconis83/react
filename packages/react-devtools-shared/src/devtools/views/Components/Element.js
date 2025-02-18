@@ -12,7 +12,6 @@ import {Fragment, useContext, useMemo, useState} from 'react';
 import Store from 'react-devtools-shared/src/devtools/store';
 import ButtonIcon from '../ButtonIcon';
 import {TreeDispatcherContext, TreeStateContext} from './TreeContext';
-import {SettingsContext} from '../Settings/SettingsContext';
 import {StoreContext} from '../context';
 import {useSubscription} from '../hooks';
 import {logEvent} from 'react-devtools-shared/src/Logger';
@@ -34,10 +33,9 @@ type Props = {
 
 export default function Element({data, index, style}: Props): React.Node {
   const store = useContext(StoreContext);
-  const {ownerFlatTree, ownerID, selectedElementID} =
+  const {ownerFlatTree, ownerID, inspectedElementID} =
     useContext(TreeStateContext);
   const dispatch = useContext(TreeDispatcherContext);
-  const {showInlineWarningsAndErrors} = React.useContext(SettingsContext);
 
   const element =
     ownerFlatTree !== null
@@ -48,7 +46,7 @@ export default function Element({data, index, style}: Props): React.Node {
 
   const {isNavigatingWithKeyboard, onElementMouseEnter, treeFocused} = data;
   const id = element === null ? null : element.id;
-  const isSelected = selectedElementID === id;
+  const isSelected = inspectedElementID === id;
 
   const errorsAndWarningsSubscription = useMemo(
     () => ({
@@ -168,7 +166,7 @@ export default function Element({data, index, style}: Props): React.Node {
               className={styles.KeyValue}
               title={key}
               onDoubleClick={handleKeyDoubleClick}>
-              {key}
+              <pre>{key}</pre>
             </span>
             "
           </Fragment>
@@ -181,7 +179,7 @@ export default function Element({data, index, style}: Props): React.Node {
           className={styles.BadgesBlock}
         />
 
-        {showInlineWarningsAndErrors && errorCount > 0 && (
+        {errorCount > 0 && (
           <Icon
             type="error"
             className={
@@ -191,7 +189,7 @@ export default function Element({data, index, style}: Props): React.Node {
             }
           />
         )}
-        {showInlineWarningsAndErrors && warningCount > 0 && (
+        {warningCount > 0 && (
           <Icon
             type="warning"
             className={

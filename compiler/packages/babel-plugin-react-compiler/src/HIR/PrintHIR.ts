@@ -6,7 +6,6 @@
  */
 
 import generate from '@babel/generator';
-import {printReactiveFunction} from '..';
 import {CompilerError} from '../CompilerError';
 import {printReactiveScopeSummary} from '../ReactiveScopes/PrintReactiveFunction';
 import DisjointSet from '../Utils/DisjointSet';
@@ -72,6 +71,7 @@ export function printFunction(fn: HIRFunction): string {
   if (definition.length !== 0) {
     output.push(definition);
   }
+  output.push(printType(fn.returnType));
   output.push(printHIR(fn.body));
   output.push(...fn.directives);
   return output.join('\n');
@@ -162,13 +162,13 @@ export function printInstruction(instr: ReactiveInstruction): string {
 
 export function printPhi(phi: Phi): string {
   const items = [];
-  items.push(printIdentifier(phi.id));
-  items.push(printMutableRange(phi.id));
-  items.push(printType(phi.type));
+  items.push(printPlace(phi.place));
+  items.push(printMutableRange(phi.place.identifier));
+  items.push(printType(phi.place.identifier.type));
   items.push(': phi(');
   const phis = [];
-  for (const [blockId, id] of phi.operands) {
-    phis.push(`bb${blockId}: ${printIdentifier(id)}`);
+  for (const [blockId, place] of phi.operands) {
+    phis.push(`bb${blockId}: ${printPlace(place)}`);
   }
 
   items.push(phis.join(', '));
@@ -190,7 +190,7 @@ export function printTerminal(terminal: Terminal): Array<string> | string {
     case 'branch': {
       value = `[${terminal.id}] Branch (${printPlace(terminal.test)}) then:bb${
         terminal.consequent
-      } else:bb${terminal.alternate}`;
+      } else:bb${terminal.alternate} fallthrough:bb${terminal.fallthrough}`;
       break;
     }
     case 'logical': {
@@ -537,9 +537,6 @@ export function printInstructionValue(instrValue: ReactiveValue): string {
         .split('\n')
         .map(line => `      ${line}`)
         .join('\n');
-      const deps = instrValue.loweredFunc.dependencies
-        .map(dep => printPlace(dep))
-        .join(',');
       const context = instrValue.loweredFunc.func.context
         .map(dep => printPlace(dep))
         .join(',');
@@ -555,7 +552,8 @@ export function printInstructionValue(instrValue: ReactiveValue): string {
             }
           })
           .join(', ') ?? '';
-      value = `${kind} ${name} @deps[${deps}] @context[${context}] @effects[${effects}]:\n${fn}`;
+      const type = printType(instrValue.loweredFunc.func.returnType).trim();
+      value = `${kind} ${name} @context[${context}] @effects[${effects}]${type !== '' ? ` return${type}` : ''}:\n${fn}`;
       break;
     }
     case 'TaggedTemplateExpression': {
@@ -702,10 +700,6 @@ export function printInstructionValue(instrValue: ReactiveValue): string {
       value = `FinishMemoize decl=${printPlace(instrValue.decl)}`;
       break;
     }
-    case 'ReactiveFunctionValue': {
-      value = `FunctionValue ${printReactiveFunction(instrValue.fn)}`;
-      break;
-    }
     default: {
       assertExhaustive(
         instrValue,
@@ -762,6 +756,12 @@ export function printLValue(lval: LValue): string {
     }
     case InstructionKind.HoistedLet: {
       return `HoistedLet ${lvalue}$`;
+    }
+    case InstructionKind.Function: {
+      return `Function ${lvalue}$`;
+    }
+    case InstructionKind.HoistedFunction: {
+      return `HoistedFunction ${lvalue}$`;
     }
     default: {
       assertExhaustive(lval.kind, `Unexpected lvalue kind \`${lval.kind}\``);
@@ -867,7 +867,7 @@ export function printManualMemoDependency(
       ? val.root.value.identifier.name.value
       : printIdentifier(val.root.value.identifier);
   }
-  return `${rootStr}${val.path.length > 0 ? '.' : ''}${val.path.join('.')}`;
+  return `${rootStr}${val.path.map(v => `${v.optional ? '?.' : '.'}${v.property}`).join('')}`;
 }
 export function printType(type: Type): string {
   if (type.kind === 'Type') return '';
@@ -886,6 +886,14 @@ export function printSourceLocation(loc: SourceLocation): string {
     return 'generated';
   } else {
     return `${loc.start.line}:${loc.start.column}:${loc.end.line}:${loc.end.column}`;
+  }
+}
+
+export function printSourceLocationLine(loc: SourceLocation): string {
+  if (typeof loc === 'symbol') {
+    return 'generated';
+  } else {
+    return `${loc.start.line}:${loc.end.line}`;
   }
 }
 

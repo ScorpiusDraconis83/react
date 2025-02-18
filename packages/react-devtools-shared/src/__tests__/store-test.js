@@ -1817,13 +1817,8 @@ describe('Store', () => {
         jest.runOnlyPendingTimers();
       }
 
-      // Gross abstraction around pending passive warning/error delay.
-      function flushPendingPassiveErrorAndWarningCounts() {
-        jest.advanceTimersByTime(1000);
-      }
-
       // @reactVersion >= 18.0
-      it('are counted (after a delay)', () => {
+      it('are counted (after no delay)', () => {
         function Example() {
           React.useEffect(() => {
             console.error('test-only: passive error');
@@ -1838,13 +1833,6 @@ describe('Store', () => {
           }, false);
         });
         flushPendingBridgeOperations();
-        expect(store).toMatchInlineSnapshot(`
-          [root]
-              <Example>
-        `);
-
-        // After a delay, passive effects should be committed as well
-        act(flushPendingPassiveErrorAndWarningCounts, false);
         expect(store).toMatchInlineSnapshot(`
           ✕ 1, ⚠ 1
           [root]
@@ -1879,8 +1867,9 @@ describe('Store', () => {
           }, false);
           flushPendingBridgeOperations();
           expect(store).toMatchInlineSnapshot(`
+            ✕ 1, ⚠ 1
             [root]
-                <Example>
+                <Example> ✕⚠
           `);
 
           // Before warnings and errors have flushed, flush another commit.
@@ -1894,21 +1883,12 @@ describe('Store', () => {
           }, false);
           flushPendingBridgeOperations();
           expect(store).toMatchInlineSnapshot(`
-            ✕ 1, ⚠ 1
+            ✕ 2, ⚠ 2
             [root]
                 <Example> ✕⚠
                 <Noop>
           `);
         });
-
-        // After a delay, passive effects should be committed as well
-        act(flushPendingPassiveErrorAndWarningCounts, false);
-        expect(store).toMatchInlineSnapshot(`
-          ✕ 2, ⚠ 2
-          [root]
-              <Example> ✕⚠
-              <Noop>
-        `);
 
         act(() => unmount());
         expect(store).toMatchInlineSnapshot(``);
@@ -2168,8 +2148,8 @@ describe('Store', () => {
         act(() => render(<React.Fragment />));
       });
       expect(store).toMatchInlineSnapshot(`[root]`);
-      expect(store.errorCount).toBe(0);
-      expect(store.warningCount).toBe(0);
+      expect(store.componentWithErrorCount).toBe(0);
+      expect(store.componentWithWarningCount).toBe(0);
     });
 
     // Regression test for https://github.com/facebook/react/issues/23202
@@ -2439,7 +2419,7 @@ describe('Store', () => {
   });
 
   // @reactVersion > 18.2
-  it('can reorder keyed components', async () => {
+  it('can reorder keyed server components', async () => {
     function ClientComponent({text}) {
       return <div>{text}</div>;
     }
@@ -2452,9 +2432,7 @@ describe('Store', () => {
           name: 'ServerComponent',
           env: 'Server',
           owner: null,
-          // TODO: Ideally the debug info should include the "key" too to
-          // preserve the virtual identity of the server component when
-          // reordered. Atm only the children of it gets reparented.
+          key: key,
         },
       ];
       return ServerPromise;
@@ -2468,11 +2446,11 @@ describe('Store', () => {
     expect(store).toMatchInlineSnapshot(`
       [root]
         ▾ <App>
-          ▾ <ServerComponent> [Server]
+          ▾ <ServerComponent key="A"> [Server]
               <ClientComponent key="A">
-          ▾ <ServerComponent> [Server]
+          ▾ <ServerComponent key="B"> [Server]
               <ClientComponent key="B">
-          ▾ <ServerComponent> [Server]
+          ▾ <ServerComponent key="C"> [Server]
               <ClientComponent key="C">
       `);
 
@@ -2480,11 +2458,11 @@ describe('Store', () => {
     expect(store).toMatchInlineSnapshot(`
       [root]
         ▾ <App>
-          ▾ <ServerComponent> [Server]
+          ▾ <ServerComponent key="B"> [Server]
               <ClientComponent key="B">
-          ▾ <ServerComponent> [Server]
+          ▾ <ServerComponent key="A"> [Server]
               <ClientComponent key="A">
-          ▾ <ServerComponent> [Server]
+          ▾ <ServerComponent key="D"> [Server]
               <ClientComponent key="D">
       `);
   });

@@ -23,7 +23,7 @@ import {
   ScopeId,
   SourceLocation,
 } from '../HIR';
-import {printManualMemoDependency} from '../HIR/PrintHIR';
+import {printIdentifier, printManualMemoDependency} from '../HIR/PrintHIR';
 import {eachInstructionValueOperand} from '../HIR/visitors';
 import {collectMaybeMemoDependencies} from '../Inference/DropManualMemoization';
 import {
@@ -116,7 +116,7 @@ function prettyPrintScopeDependency(val: ReactiveScopeDependency): string {
   } else {
     rootStr = '[unnamed]';
   }
-  return `${rootStr}${val.path.length > 0 ? '.' : ''}${val.path.join('.')}`;
+  return `${rootStr}${val.path.map(v => `${v.optional ? '?.' : '.'}${v.property}`).join('')}`;
 }
 
 enum CompareDependencyResult {
@@ -167,9 +167,16 @@ function compareDeps(
 
   let isSubpath = true;
   for (let i = 0; i < Math.min(inferred.path.length, source.path.length); i++) {
-    if (inferred.path[i] !== source.path[i]) {
+    if (inferred.path[i].property !== source.path[i].property) {
       isSubpath = false;
       break;
+    } else if (inferred.path[i].optional !== source.path[i].optional) {
+      /**
+       * The inferred path must be at least as precise as the manual path:
+       * if the inferred path is optional, then the source path must have
+       * been optional too.
+       */
+      return CompareDependencyResult.PathDifference;
     }
   }
 
@@ -177,14 +184,14 @@ function compareDeps(
     isSubpath &&
     (source.path.length === inferred.path.length ||
       (inferred.path.length >= source.path.length &&
-        !inferred.path.includes('current')))
+        !inferred.path.some(token => token.property === 'current')))
   ) {
     return CompareDependencyResult.Ok;
   } else {
     if (isSubpath) {
       if (
-        source.path.includes('current') ||
-        inferred.path.includes('current')
+        source.path.some(token => token.property === 'current') ||
+        inferred.path.some(token => token.property === 'current')
       ) {
         return CompareDependencyResult.RefAccessDifference;
       } else {
@@ -320,13 +327,6 @@ class Visitor extends ReactiveFunctionVisitor<VisitorState> {
       case 'OptionalExpression': {
         return this.recordDepsInValue(value.value, state);
       }
-      case 'ReactiveFunctionValue': {
-        CompilerError.throwTodo({
-          reason:
-            'Handle ReactiveFunctionValue in ValidatePreserveManualMemoization',
-          loc: value.loc,
-        });
-      }
       case 'ConditionalExpression': {
         this.recordDepsInValue(value.test, state);
         this.recordDepsInValue(value.consequent, state);
@@ -339,7 +339,11 @@ class Visitor extends ReactiveFunctionVisitor<VisitorState> {
         return null;
       }
       default: {
-        const dep = collectMaybeMemoDependencies(value, this.temporaries);
+        const dep = collectMaybeMemoDependencies(
+          value,
+          this.temporaries,
+          false,
+        );
         if (value.kind === 'StoreLocal' || value.kind === 'StoreContext') {
           const storeTarget = value.lvalue.place;
           state.manualMemoState?.decls.add(
@@ -537,7 +541,9 @@ class Visitor extends ReactiveFunctionVisitor<VisitorState> {
               state.errors.push({
                 reason:
                   'React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.',
-                description: null,
+                description: DEBUG
+                  ? `${printIdentifier(identifier)} was not memoized`
+                  : null,
                 severity: ErrorSeverity.CannotPreserveMemoization,
                 loc,
                 suggestions: null,

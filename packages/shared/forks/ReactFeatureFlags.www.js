@@ -19,66 +19,69 @@ export const {
   disableDefaultPropsExceptForClasses,
   disableLegacyContextForFunctionComponents,
   disableSchedulerTimeoutInWorkLoop,
-  enableAddPropertiesFastPath,
-  enableDebugTracing,
-  enableDeferRootSchedulingToMicrotask,
   enableDO_NOT_USE_disableStrictPassiveEffect,
+  enableHiddenSubtreeInsertionEffectCleanup,
   enableInfiniteRenderLoopDetection,
   enableNoCloningMemoCache,
   enableObjectFiber,
   enableRenderableContext,
   enableRetryLaneExpiration,
+  enableSiblingPrerendering,
   enableTransitionTracing,
   enableTrustedTypesIntegration,
+  enableUseEffectCRUDOverload,
   favorSafetyOverHydrationPerf,
   renameElementSymbol,
   retryLaneExpirationMs,
   syncLaneExpirationMs,
   transitionLaneExpirationMs,
+  enableFastAddPropertiesInDiffing,
+  enableViewTransition,
 } = dynamicFeatureFlags;
 
 // On WWW, __EXPERIMENTAL__ is used for a new modern build.
 // It's not used anywhere in production yet.
 
-export const debugRenderPhaseSideEffectsForStrictMode = __DEV__;
+// Can remove these two
+export const enableOwnerStacks = true;
+export const enableRemoveConsolePatches = true;
+
 export const enableProfilerTimer = __PROFILE__;
 export const enableProfilerCommitHooks = __PROFILE__;
 export const enableProfilerNestedUpdatePhase = __PROFILE__;
 export const enableUpdaterTracking = __PROFILE__;
-export const enableFabricCompleteRootInCommitPhase = false;
 
 export const enableSuspenseAvoidThisFallback = true;
-export const enableSuspenseAvoidThisFallbackFizz = false;
 
-export const disableIEWorkarounds = true;
 export const enableCPUSuspense = true;
-export const enableUseMemoCacheHook = true;
 export const enableUseEffectEventHook = true;
-export const enableFilterEmptyStringAttributesDOM = true;
-export const enableAsyncActions = true;
+export const enableMoveBefore = false;
 export const disableInputAttributeSyncing = false;
 export const enableLegacyFBSupport = true;
-export const enableLazyContextPropagation = true;
+
+export const enableYieldingBeforePassive = false;
+
+export const enableThrottledScheduling = false;
+
+export const enableHydrationLaneScheduling = true;
+
+export const enableComponentPerformanceTrack = false;
 
 // Logs additional User Timing API marks for use with an experimental profiling tool.
 export const enableSchedulingProfiler: boolean =
   __PROFILE__ && dynamicFeatureFlags.enableSchedulingProfiler;
 
 export const disableLegacyContext = __EXPERIMENTAL__;
-export const enableGetInspectorDataForInstanceInProduction = false;
 
-export const enableCache = true;
 export const enableLegacyCache = true;
 
-export const enableBinaryFlight = true;
-export const enableFlightReadableStream = true;
 export const enableAsyncIterableChildren = false;
 
 export const enableTaint = false;
 
 export const enablePostpone = false;
 
-export const enableContextProfiling = true;
+export const enableHalt = false;
 
 // TODO: www currently relies on this feature. It's disabled in open source.
 // Need to remove it.
@@ -92,13 +95,7 @@ export const enableSuspenseCallback = true;
 
 export const enableLegacyHidden = true;
 
-export const enableComponentStackLocations = true;
-
-export const enableRefAsProp = true;
-
 export const disableTextareaChildren = __EXPERIMENTAL__;
-
-export const consoleManagedByDevToolsDuringStrictMode = true;
 
 export const enableFizzExternalRuntime = true;
 
@@ -109,20 +106,15 @@ export const enablePersistedModeClonedFlag = false;
 export const enableAsyncDebugInfo = false;
 export const disableClientCache = true;
 
-export const enableServerComponentLogs = true;
-
 export const enableReactTestRendererWarning = false;
-export const useModernStrictMode = true;
 
-// TODO: Roll out with GK. Don't keep as dynamic flag for too long, though,
-// because JSX is an extremely hot path.
-export const disableStringRefs = false;
+export const disableLegacyMode = true;
 
-export const disableLegacyMode: boolean =
-  __EXPERIMENTAL__ || dynamicFeatureFlags.disableLegacyMode;
-
-export const enableOwnerStacks = false;
 export const enableShallowPropDiffing = false;
+
+export const enableLazyPublicInstanceInFabric = false;
+
+export const enableSwipeTransition = false;
 
 // Flow magic to verify the exports of this file match the original version.
 ((((null: any): ExportsType): FeatureFlagsType): ExportsType);

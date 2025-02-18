@@ -15,8 +15,8 @@ import {
 import isArray from 'shared/isArray';
 
 import {
-  enableAddPropertiesFastPath,
   enableShallowPropDiffing,
+  enableFastAddPropertiesInDiffing,
 } from 'shared/ReactFeatureFlags';
 
 import type {AttributeConfiguration} from './ReactNativeTypes';
@@ -221,7 +221,11 @@ function addNestedProperty(
 
   if (!isArray(nextProp)) {
     // Add each property of the leaf.
-    return addProperties(updatePayload, nextProp, validAttributes);
+    if (enableFastAddPropertiesInDiffing) {
+      return fastAddProperties(updatePayload, nextProp, validAttributes);
+    } else {
+      return addProperties(updatePayload, nextProp, validAttributes);
+    }
   }
 
   for (let i = 0; i < nextProp.length; i++) {
@@ -537,11 +541,7 @@ export function create(
   props: Object,
   validAttributes: AttributeConfiguration,
 ): null | Object {
-  if (enableAddPropertiesFastPath) {
-    return fastAddProperties(null, props, validAttributes);
-  } else {
-    return addProperties(null, props, validAttributes);
-  }
+  return fastAddProperties(null, props, validAttributes);
 }
 
 export function diff(
