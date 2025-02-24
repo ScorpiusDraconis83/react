@@ -49,6 +49,7 @@ export const ElementTypeSuspense = 12;
 export const ElementTypeSuspenseList = 13;
 export const ElementTypeTracingMarker = 14;
 export const ElementTypeVirtual = 15;
+export const ElementTypeViewTransition = 16;
 
 // Different types of elements displayed in the Elements tree.
 // These types may be used to visually distinguish types,
@@ -66,7 +67,8 @@ export type ElementType =
   | 12
   | 13
   | 14
-  | 15;
+  | 15
+  | 16;
 
 // WARNING
 // The values below are referenced by ComponentFilters (which are saved via localStorage).
@@ -76,8 +78,9 @@ export const ComponentFilterElementType = 1;
 export const ComponentFilterDisplayName = 2;
 export const ComponentFilterLocation = 3;
 export const ComponentFilterHOC = 4;
+export const ComponentFilterEnvironmentName = 5;
 
-export type ComponentFilterType = 1 | 2 | 3 | 4;
+export type ComponentFilterType = 1 | 2 | 3 | 4 | 5;
 
 // Hide all elements of types in this Set.
 // We hide host components only by default.
@@ -102,10 +105,18 @@ export type BooleanComponentFilter = {
   type: 4,
 };
 
+export type EnvironmentNameComponentFilter = {
+  isEnabled: boolean,
+  isValid: boolean,
+  type: 5,
+  value: string,
+};
+
 export type ComponentFilter =
   | BooleanComponentFilter
   | ElementTypeComponentFilter
-  | RegExpComponentFilter;
+  | RegExpComponentFilter
+  | EnvironmentNameComponentFilter;
 
 export type HookName = string | null;
 // Map of hook source ("<filename>:<line-number>:<column-number>") to name.
@@ -210,7 +221,6 @@ export type InspectedElement = {
   // Is this Error, and can its value be overridden now?
   isErrored: boolean,
   canToggleError: boolean,
-  targetErrorBoundaryID: ?number,
 
   // Is this Suspense, and can its value be overridden now?
   canToggleSuspense: boolean,

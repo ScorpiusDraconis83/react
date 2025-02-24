@@ -8,7 +8,6 @@
 import {isValidIdentifier} from '@babel/types';
 import {CompilerError} from '../CompilerError';
 import {
-  Environment,
   GotoVariant,
   HIRFunction,
   IdentifierId,
@@ -20,6 +19,7 @@ import {
   Primitive,
   assertConsistentIdentifiers,
   assertTerminalSuccessorsExist,
+  makePropertyLiteral,
   markInstructionIds,
   markPredecessors,
   mergeConsecutiveBlocks,
@@ -117,7 +117,7 @@ function applyConstantPropagation(
     for (const phi of block.phis) {
       let value = evaluatePhi(phi, constants);
       if (value !== null) {
-        constants.set(phi.id.id, value);
+        constants.set(phi.place.identifier.id, value);
       }
     }
 
@@ -130,7 +130,7 @@ function applyConstantPropagation(
         continue;
       }
       const instr = block.instructions[i]!;
-      const value = evaluateInstruction(fn.env, constants, instr);
+      const value = evaluateInstruction(constants, instr);
       if (value !== null) {
         constants.set(instr.lvalue.identifier.id, value);
       }
@@ -167,7 +167,7 @@ function applyConstantPropagation(
 function evaluatePhi(phi: Phi, constants: Constants): Constant | null {
   let value: Constant | null = null;
   for (const [, operand] of phi.operands) {
-    const operandValue = constants.get(operand.id) ?? null;
+    const operandValue = constants.get(operand.identifier.id) ?? null;
     // did not find a constant, can't constant propogate
     if (operandValue === null) {
       return null;
@@ -223,7 +223,6 @@ function evaluatePhi(phi: Phi, constants: Constants): Constant | null {
 }
 
 function evaluateInstruction(
-  env: Environment,
   constants: Constants,
   instr: Instruction,
 ): Constant | null {
@@ -240,13 +239,14 @@ function evaluateInstruction(
       if (
         property !== null &&
         property.kind === 'Primitive' &&
-        typeof property.value === 'string' &&
-        isValidIdentifier(property.value)
+        ((typeof property.value === 'string' &&
+          isValidIdentifier(property.value)) ||
+          typeof property.value === 'number')
       ) {
         const nextValue: InstructionValue = {
           kind: 'PropertyLoad',
           loc: value.loc,
-          property: property.value,
+          property: makePropertyLiteral(property.value),
           object: value.object,
         };
         instr.value = nextValue;
@@ -258,13 +258,14 @@ function evaluateInstruction(
       if (
         property !== null &&
         property.kind === 'Primitive' &&
-        typeof property.value === 'string' &&
-        isValidIdentifier(property.value)
+        ((typeof property.value === 'string' &&
+          isValidIdentifier(property.value)) ||
+          typeof property.value === 'number')
       ) {
         const nextValue: InstructionValue = {
           kind: 'PropertyStore',
           loc: value.loc,
-          property: property.value,
+          property: makePropertyLiteral(property.value),
           object: value.object,
           value: value.value,
         };

@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import generate from '@babel/generator';
-import * as t from '@babel/types';
 import {
   CodeIcon,
   DocumentAddIcon,
@@ -17,21 +15,16 @@ import {type CompilerError} from 'babel-plugin-react-compiler/src';
 import parserBabel from 'prettier/plugins/babel';
 import * as prettierPluginEstree from 'prettier/plugins/estree';
 import * as prettier from 'prettier/standalone';
-import {memo, useEffect, useState} from 'react';
+import {memo, ReactNode, useEffect, useState} from 'react';
 import {type Store} from '../../lib/stores';
 import TabbedWindow from '../TabbedWindow';
 import {monacoOptions} from './monacoOptions';
+import {BabelFileResult} from '@babel/core';
 const MemoizedOutput = memo(Output);
 
 export default MemoizedOutput;
 
 export type PrintedCompilerPipelineValue =
-  | {
-      kind: 'ast';
-      name: string;
-      fnName: string | null;
-      value: t.FunctionDeclaration;
-    }
   | {
       kind: 'hir';
       name: string;
@@ -41,11 +34,20 @@ export type PrintedCompilerPipelineValue =
   | {kind: 'reactive'; name: string; fnName: string | null; value: string}
   | {kind: 'debug'; name: string; fnName: string | null; value: string};
 
+export type CompilerTransformOutput = {
+  code: string;
+  sourceMaps: BabelFileResult['map'];
+  language: 'flow' | 'typescript';
+};
 export type CompilerOutput =
-  | {kind: 'ok'; results: Map<string, PrintedCompilerPipelineValue[]>}
+  | {
+      kind: 'ok';
+      transformOutput: CompilerTransformOutput;
+      results: Map<string, Array<PrintedCompilerPipelineValue>>;
+    }
   | {
       kind: 'err';
-      results: Map<string, PrintedCompilerPipelineValue[]>;
+      results: Map<string, Array<PrintedCompilerPipelineValue>>;
       error: CompilerError;
     };
 
@@ -54,11 +56,13 @@ type Props = {
   compilerOutput: CompilerOutput;
 };
 
-async function tabify(source: string, compilerOutput: CompilerOutput) {
+async function tabify(
+  source: string,
+  compilerOutput: CompilerOutput,
+): Promise<Map<string, ReactNode>> {
   const tabs = new Map<string, React.ReactNode>();
   const reorderedTabs = new Map<string, React.ReactNode>();
   const concattedResults = new Map<string, string>();
-  let topLevelFnDecls: Array<t.FunctionDeclaration> = [];
   // Concat all top level function declaration results into a single tab for each pass
   for (const [passName, results] of compilerOutput.results) {
     for (const result of results) {
@@ -84,9 +88,6 @@ async function tabify(source: string, compilerOutput: CompilerOutput) {
           }
           break;
         }
-        case 'ast':
-          topLevelFnDecls.push(result.value);
-          break;
         case 'debug': {
           concattedResults.set(passName, result.value);
           break;
@@ -111,11 +112,17 @@ async function tabify(source: string, compilerOutput: CompilerOutput) {
     lastPassOutput = text;
   }
   // Ensure that JS and the JS source map come first
-  if (topLevelFnDecls.length > 0) {
-    // Make a synthetic Program so we can have a single AST with all the top level
-    // FunctionDeclarations
-    const ast = t.program(topLevelFnDecls);
-    const {code, sourceMapUrl} = await codegen(ast, source);
+  if (compilerOutput.kind === 'ok') {
+    const {transformOutput} = compilerOutput;
+    const sourceMapUrl = getSourceMapUrl(
+      transformOutput.code,
+      JSON.stringify(transformOutput.sourceMaps),
+    );
+    const code = await prettier.format(transformOutput.code, {
+      semi: true,
+      parser: transformOutput.language === 'flow' ? 'babel-flow' : 'babel-ts',
+      plugins: [parserBabel, prettierPluginEstree],
+    });
     reorderedTabs.set(
       'JS',
       <TextTabContent
@@ -142,27 +149,6 @@ async function tabify(source: string, compilerOutput: CompilerOutput) {
   return reorderedTabs;
 }
 
-async function codegen(
-  ast: t.Program,
-  source: string,
-): Promise<{code: any; sourceMapUrl: string | null}> {
-  const generated = generate(
-    ast,
-    {sourceMaps: true, sourceFileName: 'input.js'},
-    source,
-  );
-  const sourceMapUrl = getSourceMapUrl(
-    generated.code,
-    JSON.stringify(generated.map),
-  );
-  const codegenOutput = await prettier.format(generated.code, {
-    semi: true,
-    parser: 'babel',
-    plugins: [parserBabel, prettierPluginEstree],
-  });
-  return {code: codegenOutput, sourceMapUrl};
-}
-
 function utf16ToUTF8(s: string): string {
   return unescape(encodeURIComponent(s));
 }
@@ -175,7 +161,7 @@ function getSourceMapUrl(code: string, map: string): string | null {
   )}`;
 }
 
-function Output({store, compilerOutput}: Props) {
+function Output({store, compilerOutput}: Props): JSX.Element {
   const [tabsOpen, setTabsOpen] = useState<Set<string>>(() => new Set(['JS']));
   const [tabs, setTabs] = useState<Map<string, React.ReactNode>>(
     () => new Map(),
@@ -236,11 +222,13 @@ function TextTabContent({
   output: string;
   diff: string | null;
   showInfoPanel: boolean;
-}) {
+}): JSX.Element {
   const [diffMode, setDiffMode] = useState(false);
   return (
-    // Restrict MonacoEditor's height, since the config autoLayout:true
-    // will grow the editor to fit within parent element
+    /**
+     * Restrict MonacoEditor's height, since the config autoLayout:true
+     * will grow the editor to fit within parent element
+     */
     <div className="w-full h-monaco_small sm:h-monaco">
       {showInfoPanel ? (
         <div className="flex items-center gap-1 bg-amber-50 p-2">

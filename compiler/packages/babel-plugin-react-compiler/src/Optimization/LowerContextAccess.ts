@@ -23,6 +23,8 @@ import {
   isUseContextHookType,
   makeBlockId,
   makeInstructionId,
+  makePropertyLiteral,
+  makeType,
   markInstructionIds,
   promoteTemporary,
   reversePostorderBlocks,
@@ -194,7 +196,7 @@ function emitPropertyLoad(
   const loadProp: PropertyLoad = {
     kind: 'PropertyLoad',
     object,
-    property,
+    property: makePropertyLiteral(property),
     loc: GeneratedSource,
   };
   const element: Place = createTemporaryPlace(env, GeneratedSource);
@@ -244,7 +246,8 @@ function emitSelectorFn(env: Environment, keys: Array<string>): Instruction {
     fnType: 'Other',
     env,
     params: [obj],
-    returnType: null,
+    returnTypeAnnotation: null,
+    returnType: makeType(),
     context: [],
     effects: null,
     body: {
@@ -268,7 +271,6 @@ function emitSelectorFn(env: Environment, keys: Array<string>): Instruction {
       name: null,
       loweredFunc: {
         func: fn,
-        dependencies: [],
       },
       type: 'ArrowFunctionExpression',
       loc: GeneratedSource,

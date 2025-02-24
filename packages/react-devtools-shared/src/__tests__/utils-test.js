@@ -155,6 +155,12 @@ describe('utils', () => {
         'Symbol(abc) 123',
       );
     });
+
+    it('should gracefully handle objects with no prototype', () => {
+      expect(
+        formatConsoleArgumentsToSingleString('%o', Object.create(null)),
+      ).toEqual('%o [object Object]');
+    });
   });
 
   describe('formatWithStyles', () => {
@@ -463,6 +469,15 @@ function f() { }
         'color: rgba(...)',
         {},
       ]);
+    });
+
+    it('formats nullish values', () => {
+      expect(formatConsoleArguments('This is the %s template', null)).toEqual([
+        'This is the null template',
+      ]);
+      expect(
+        formatConsoleArguments('This is the %s template', undefined),
+      ).toEqual(['This is the undefined template']);
     });
   });
 });

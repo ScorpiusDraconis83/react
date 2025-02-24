@@ -17,6 +17,7 @@ import type {
   Awaited,
   ReactComponentInfo,
   ReactDebugInfo,
+  StartGesture,
 } from 'shared/ReactTypes';
 import type {WorkTag} from './ReactWorkTags';
 import type {TypeOfMode} from './ReactTypeOfMode';
@@ -37,6 +38,8 @@ import type {
 } from './ReactFiberTracingMarkerComponent';
 import type {ConcurrentUpdate} from './ReactFiberConcurrentUpdates';
 import type {ComponentStackNode} from 'react-server/src/ReactFizzComponentStack';
+import type {ThenableState} from './ReactFiberThenable';
+import type {ScheduledGesture} from './ReactFiberGestureScheduler';
 
 // Unwind Circular: moved from ReactFiberHooks.old
 export type HookType =
@@ -59,28 +62,20 @@ export type HookType =
   | 'useCacheRefresh'
   | 'useOptimistic'
   | 'useFormState'
-  | 'useActionState';
+  | 'useActionState'
+  | 'useSwipeTransition';
 
-export type ContextDependency<C> = {
-  context: ReactContext<C>,
-  next: ContextDependency<mixed> | ContextDependencyWithSelect<mixed> | null,
-  memoizedValue: C,
-};
-
-export type ContextDependencyWithSelect<C> = {
-  context: ReactContext<C>,
-  next: ContextDependency<mixed> | ContextDependencyWithSelect<mixed> | null,
-  memoizedValue: C,
-  select: C => Array<mixed>,
-  lastSelectedValue: ?Array<mixed>,
+export type ContextDependency<T> = {
+  context: ReactContext<T>,
+  next: ContextDependency<mixed> | null,
+  memoizedValue: T,
+  ...
 };
 
 export type Dependencies = {
   lanes: Lanes,
-  firstContext:
-    | ContextDependency<mixed>
-    | ContextDependencyWithSelect<mixed>
-    | null,
+  firstContext: ContextDependency<mixed> | null,
+  _debugThenableState?: null | ThenableState, // DEV-only
   ...
 };
 
@@ -208,7 +203,6 @@ export type Fiber = {
   _debugOwner?: ReactComponentInfo | Fiber | null,
   _debugStack?: string | Error | null,
   _debugTask?: ConsoleTask | null,
-  _debugIsCurrentlyTiming?: boolean,
   _debugNeedsRemount?: boolean,
 
   // Used to verify that the order of hooks does not change between renders.
@@ -228,8 +222,6 @@ type BaseFiberRootProperties = {
 
   pingCache: WeakMap<Wakeable, Set<mixed>> | Map<Wakeable, Set<mixed>> | null,
 
-  // A finished work-in-progress HostRoot that's ready to be committed.
-  finishedWork: Fiber | null,
   // Timeout handle returned by setTimeout. Used to cancel a pending timeout, if
   // it's superseded by a new one.
   timeoutHandle: TimeoutHandle | NoTimeout,
@@ -255,11 +247,10 @@ type BaseFiberRootProperties = {
   pendingLanes: Lanes,
   suspendedLanes: Lanes,
   pingedLanes: Lanes,
+  warmLanes: Lanes,
   expiredLanes: Lanes,
   errorRecoveryDisabledLanes: Lanes,
   shellSuspendCounter: number,
-
-  finishedLanes: Lanes,
 
   entangledLanes: Lanes,
   entanglements: LaneMap<Lanes>,
@@ -291,6 +282,9 @@ type BaseFiberRootProperties = {
   ) => void,
 
   formState: ReactFormState<any, any> | null,
+
+  // enableSwipeTransition only
+  gestures: null | ScheduledGesture,
 };
 
 // The following attributes are only used by DevTools and are only present in DEV builds.
@@ -371,6 +365,11 @@ type TransitionTracingOnlyFiberRootProperties = {
   incompleteTransitions: Map<Transition, TracingMarkerInstance>,
 };
 
+type ProfilerCommitHooksOnlyFiberRootProperties = {
+  effectDuration: number,
+  passiveEffectDuration: number,
+};
+
 // Exported FiberRoot type includes all properties,
 // To avoid requiring potentially error-prone :any casts throughout the project.
 // The types are defined separately within this file to ensure they stay in sync.
@@ -379,7 +378,7 @@ export type FiberRoot = {
   ...SuspenseCallbackOnlyFiberRootProperties,
   ...UpdaterTrackingOnlyFiberRootProperties,
   ...TransitionTracingOnlyFiberRootProperties,
-  ...
+  ...ProfilerCommitHooksOnlyFiberRootProperties,
 };
 
 type BasicStateAction<S> = (S => S) | S;
@@ -394,16 +393,16 @@ export type Dispatcher = {
     initialArg: I,
     init?: (I) => S,
   ): [S, Dispatch<A>],
-  unstable_useContextWithBailout?: <T>(
-    context: ReactContext<T>,
-    select: (T => Array<mixed>) | null,
-  ) => T,
   useContext<T>(context: ReactContext<T>): T,
   useRef<T>(initialValue: T): {current: T},
   useEffect(
-    create: () => (() => void) | void,
-    deps: Array<mixed> | void | null,
+    create: (() => (() => void) | void) | (() => {...} | void | null),
+    createDeps: Array<mixed> | void | null,
+    update?: ((resource: {...} | void | null) => void) | void,
+    updateDeps?: Array<mixed> | void | null,
+    destroy?: ((resource: {...} | void | null) => void) | void,
   ): void,
+  // TODO: Non-nullable once `enableUseEffectEventHook` is on everywhere.
   useEffectEvent?: <Args, F: (...Array<Args>) => mixed>(callback: F) => F,
   useInsertionEffect(
     create: () => (() => void) | void,
@@ -432,27 +431,33 @@ export type Dispatcher = {
     getServerSnapshot?: () => T,
   ): T,
   useId(): string,
-  useCacheRefresh?: () => <T>(?() => T, ?T) => void,
-  useMemoCache?: (size: number) => Array<any>,
-  useHostTransitionStatus?: () => TransitionStatus,
-  useOptimistic?: <S, A>(
+  useCacheRefresh: () => <T>(?() => T, ?T) => void,
+  useMemoCache: (size: number) => Array<any>,
+  useHostTransitionStatus: () => TransitionStatus,
+  useOptimistic: <S, A>(
     passthrough: S,
     reducer: ?(S, A) => S,
   ) => [S, (A) => void],
-  useFormState?: <S, P>(
+  useFormState: <S, P>(
     action: (Awaited<S>, P) => S,
     initialState: Awaited<S>,
     permalink?: string,
   ) => [Awaited<S>, (P) => void, boolean],
-  useActionState?: <S, P>(
+  useActionState: <S, P>(
     action: (Awaited<S>, P) => S,
     initialState: Awaited<S>,
     permalink?: string,
   ) => [Awaited<S>, (P) => void, boolean],
+  // TODO: Non-nullable once `enableSwipeTransition` is on everywhere.
+  useSwipeTransition?: <T>(
+    previous: T,
+    current: T,
+    next: T,
+  ) => [T, StartGesture],
 };
 
 export type AsyncDispatcher = {
   getCacheForType: <T>(resourceType: () => T) => T,
-  // DEV-only (or !disableStringRefs)
+  // DEV-only
   getOwner: () => null | Fiber | ReactComponentInfo | ComponentStackNode,
 };

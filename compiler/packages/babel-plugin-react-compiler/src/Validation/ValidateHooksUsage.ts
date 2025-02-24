@@ -198,11 +198,12 @@ export function validateHooksUsage(fn: HIRFunction): void {
   for (const [, block] of fn.body.blocks) {
     for (const phi of block.phis) {
       let kind: Kind =
-        phi.id.name !== null && isHookName(phi.id.name.value)
+        phi.place.identifier.name !== null &&
+        isHookName(phi.place.identifier.name.value)
           ? Kind.PotentialHook
           : Kind.Local;
       for (const [, operand] of phi.operands) {
-        const operandKind = valueKinds.get(operand.id);
+        const operandKind = valueKinds.get(operand.identifier.id);
         /*
          * NOTE: we currently skip operands whose value is unknown
          * (which can only occur for functions with loops), we may
@@ -213,7 +214,7 @@ export function validateHooksUsage(fn: HIRFunction): void {
           kind = joinKinds(kind, operandKind);
         }
       }
-      valueKinds.set(phi.id.id, kind);
+      valueKinds.set(phi.place.identifier.id, kind);
     }
     for (const instr of block.instructions) {
       switch (instr.value.kind) {
@@ -256,7 +257,9 @@ export function validateHooksUsage(fn: HIRFunction): void {
         }
         case 'PropertyLoad': {
           const objectKind = getKindForPlace(instr.value.object);
-          const isHookProperty = isHookName(instr.value.property);
+          const isHookProperty =
+            typeof instr.value.property === 'string' &&
+            isHookName(instr.value.property);
           let kind: Kind;
           switch (objectKind) {
             case Kind.Error: {

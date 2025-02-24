@@ -127,6 +127,7 @@ export type HookKind =
   | 'useMemo'
   | 'useCallback'
   | 'useTransition'
+  | 'useImperativeHandle'
   | 'Custom';
 
 /*
@@ -171,6 +172,10 @@ export type FunctionSignature = {
    * - Else uses the effects specified by this signature.
    */
   mutableOnlyIfOperandsAreMutable?: boolean;
+
+  impure?: boolean;
+
+  canonicalName?: string;
 };
 
 /*
@@ -212,6 +217,7 @@ export const BuiltInDispatchId = 'BuiltInDispatch';
 export const BuiltInUseContextHookId = 'BuiltInUseContextHook';
 export const BuiltInUseTransitionId = 'BuiltInUseTransition';
 export const BuiltInStartTransitionId = 'BuiltInStartTransition';
+export const BuiltInFireId = 'BuiltInFire';
 
 // ShapeRegistry with default definitions for built-ins.
 export const BUILTIN_SHAPES: ShapeRegistry = new Map();
@@ -302,6 +308,23 @@ addObject(BUILTIN_SHAPES, BuiltInArrayId, [
   ],
   [
     'map',
+    addFunction(BUILTIN_SHAPES, [], {
+      positionalParams: [],
+      restParam: Effect.ConditionallyMutate,
+      returnType: {kind: 'Object', shapeId: BuiltInArrayId},
+      /*
+       * callee is ConditionallyMutate because items of the array
+       * flow into the lambda and may be mutated there, even though
+       * the array object itself is not modified
+       */
+      calleeEffect: Effect.ConditionallyMutate,
+      returnValueKind: ValueKind.Mutable,
+      noAlias: true,
+      mutableOnlyIfOperandsAreMutable: true,
+    }),
+  ],
+  [
+    'flatMap',
     addFunction(BUILTIN_SHAPES, [], {
       positionalParams: [],
       restParam: Effect.ConditionallyMutate,
@@ -526,8 +549,27 @@ addObject(BUILTIN_SHAPES, BuiltInMixedReadonlyId, [
   [
     'map',
     addFunction(BUILTIN_SHAPES, [], {
+      /**
+       * Note `map`'s arguments are annotated as Effect.ConditionallyMutate as
+       * calling `<array>.map(fn)` might invoke `fn`, which means replaying its
+       * effects.
+       *
+       * (Note that Effect.Read / Effect.Capture on a function type means
+       * potential data dependency or aliasing respectively.)
+       */
       positionalParams: [],
-      restParam: Effect.Read,
+      restParam: Effect.ConditionallyMutate,
+      returnType: {kind: 'Object', shapeId: BuiltInArrayId},
+      calleeEffect: Effect.ConditionallyMutate,
+      returnValueKind: ValueKind.Mutable,
+      noAlias: true,
+    }),
+  ],
+  [
+    'flatMap',
+    addFunction(BUILTIN_SHAPES, [], {
+      positionalParams: [],
+      restParam: Effect.ConditionallyMutate,
       returnType: {kind: 'Object', shapeId: BuiltInArrayId},
       calleeEffect: Effect.ConditionallyMutate,
       returnValueKind: ValueKind.Mutable,
@@ -538,7 +580,7 @@ addObject(BUILTIN_SHAPES, BuiltInMixedReadonlyId, [
     'filter',
     addFunction(BUILTIN_SHAPES, [], {
       positionalParams: [],
-      restParam: Effect.Read,
+      restParam: Effect.ConditionallyMutate,
       returnType: {kind: 'Object', shapeId: BuiltInArrayId},
       calleeEffect: Effect.ConditionallyMutate,
       returnValueKind: ValueKind.Mutable,

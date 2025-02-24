@@ -17,11 +17,18 @@ export const COMPILER_PATH = path.join(
   'Babel',
   'BabelPlugin.js',
 );
-export const LOGGER_PATH = path.join(
+export const COMPILER_INDEX_PATH = path.join(process.cwd(), 'dist', 'index');
+export const PRINT_HIR_PATH = path.join(
   process.cwd(),
   'dist',
-  'Utils',
-  'logger.js',
+  'HIR',
+  'PrintHIR.js',
+);
+export const PRINT_REACTIVE_IR_PATH = path.join(
+  process.cwd(),
+  'dist',
+  'ReactiveScopes',
+  'PrintReactiveFunction.js',
 );
 export const PARSE_CONFIG_PRAGMA_PATH = path.join(
   process.cwd(),

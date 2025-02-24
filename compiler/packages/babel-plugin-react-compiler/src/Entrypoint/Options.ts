@@ -7,9 +7,15 @@
 
 import * as t from '@babel/types';
 import {z} from 'zod';
-import {CompilerErrorDetailOptions} from '../CompilerError';
-import {ExternalFunction, PartialEnvironmentConfig} from '../HIR/Environment';
+import {CompilerError, CompilerErrorDetailOptions} from '../CompilerError';
+import {
+  EnvironmentConfig,
+  ExternalFunction,
+  parseEnvironmentConfig,
+} from '../HIR/Environment';
 import {hasOwnProperty} from '../Utils/utils';
+import {fromZodError} from 'zod-validation-error';
+import {CompilerPipelineValue} from './Pipeline';
 
 const PanicThresholdOptionsSchema = z.enum([
   /*
@@ -32,7 +38,7 @@ const PanicThresholdOptionsSchema = z.enum([
 export type PanicThresholdOptions = z.infer<typeof PanicThresholdOptionsSchema>;
 
 export type PluginOptions = {
-  environment: PartialEnvironmentConfig | null;
+  environment: EnvironmentConfig;
 
   logger: Logger | null;
 
@@ -82,17 +88,6 @@ export type PluginOptions = {
    */
   compilationMode: CompilationMode;
 
-  /*
-   * If enabled, Forget will import `useMemoCache` from the given module
-   * instead of `react/compiler-runtime`.
-   *
-   * ```
-   * // If set to "react-compiler-runtime"
-   * import {c as useMemoCache} from 'react-compiler-runtime';
-   * ```
-   */
-  runtimeModule?: string | null | undefined;
-
   /**
    * By default React Compiler will skip compilation of code that suppresses the default
    * React ESLint rules, since this is a strong indication that the code may be breaking React rules
@@ -117,7 +112,33 @@ export type PluginOptions = {
    * Set this flag (on by default) to automatically check for this library and activate the support.
    */
   enableReanimatedCheck: boolean;
+
+  /**
+   * The minimum major version of React that the compiler should emit code for. If the target is 19
+   * or higher, the compiler emits direct imports of React runtime APIs needed by the compiler. On
+   * versions prior to 19, an extra runtime package react-compiler-runtime is necessary to provide
+   * a userspace approximation of runtime APIs.
+   */
+  target: CompilerReactTarget;
 };
+
+const CompilerReactTargetSchema = z.union([
+  z.literal('17'),
+  z.literal('18'),
+  z.literal('19'),
+  /**
+   * Used exclusively for Meta apps which are guaranteed to have compatible
+   * react runtime and compiler versions. Note that only the FB-internal bundles
+   * re-export useMemoCache (see
+   * https://github.com/facebook/react/blob/5b0ef217ef32333a8e56f39be04327c89efa346f/packages/react/index.fb.js#L68-L70),
+   * so this option is invalid / creates runtime errors for open-source users.
+   */
+  z.object({
+    kind: z.literal('donotuse_meta_internal'),
+    runtimeModule: z.string().default('react'),
+  }),
+]);
+export type CompilerReactTarget = z.infer<typeof CompilerReactTargetSchema>;
 
 const CompilationModeSchema = z.enum([
   /*
@@ -166,6 +187,12 @@ export type LoggerEvent =
       detail: Omit<Omit<CompilerErrorDetailOptions, 'severity'>, 'suggestions'>;
     }
   | {
+      kind: 'CompileSkip';
+      fnLoc: t.SourceLocation | null;
+      reason: string;
+      loc: t.SourceLocation | null;
+    }
+  | {
       kind: 'CompileSuccess';
       fnLoc: t.SourceLocation | null;
       fnName: string | null;
@@ -179,20 +206,24 @@ export type LoggerEvent =
       kind: 'PipelineError';
       fnLoc: t.SourceLocation | null;
       data: string;
+    }
+  | {
+      kind: 'Timing';
+      measurement: PerformanceMeasure;
     };
 
 export type Logger = {
   logEvent: (filename: string | null, event: LoggerEvent) => void;
+  debugLogIRs?: (value: CompilerPipelineValue) => void;
 };
 
 export const defaultOptions: PluginOptions = {
   compilationMode: 'infer',
   panicThreshold: 'none',
-  environment: {},
+  environment: parseEnvironmentConfig({}).unwrap(),
   logger: null,
   gating: null,
   noEmit: false,
-  runtimeModule: null,
   eslintSuppressionRules: null,
   flowSuppressions: true,
   ignoreUseNoForget: false,
@@ -200,6 +231,7 @@ export const defaultOptions: PluginOptions = {
     return filename.indexOf('node_modules') === -1;
   },
   enableReanimatedCheck: true,
+  target: '19',
 } as const;
 
 export function parsePluginOptions(obj: unknown): PluginOptions {
@@ -213,10 +245,46 @@ export function parsePluginOptions(obj: unknown): PluginOptions {
       value = value.toLowerCase();
     }
     if (isCompilerFlag(key)) {
-      parsedOptions[key] = value;
+      switch (key) {
+        case 'environment': {
+          const environmentResult = parseEnvironmentConfig(value);
+          if (environmentResult.isErr()) {
+            CompilerError.throwInvalidConfig({
+              reason:
+                'Error in validating environment config. This is an advanced setting and not meant to be used directly',
+              description: environmentResult.unwrapErr().toString(),
+              suggestions: null,
+              loc: null,
+            });
+          }
+          parsedOptions[key] = environmentResult.unwrap();
+          break;
+        }
+        case 'target': {
+          parsedOptions[key] = parseTargetConfig(value);
+          break;
+        }
+        default: {
+          parsedOptions[key] = value;
+        }
+      }
     }
   }
   return {...defaultOptions, ...parsedOptions};
+}
+
+export function parseTargetConfig(value: unknown): CompilerReactTarget {
+  const parsed = CompilerReactTargetSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  } else {
+    CompilerError.throwInvalidConfig({
+      reason: 'Not a valid target',
+      description: `${fromZodError(parsed.error)}`,
+      suggestions: null,
+      loc: null,
+    });
+  }
 }
 
 function isCompilerFlag(s: string): s is keyof PluginOptions {

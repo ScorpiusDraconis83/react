@@ -43,6 +43,7 @@ export function describeFiber(
     SimpleMemoComponent,
     ForwardRef,
     ClassComponent,
+    ViewTransitionComponent,
   } = workTagMap;
 
   switch (workInProgress.tag) {
@@ -57,6 +58,8 @@ export function describeFiber(
       return describeBuiltInComponentFrame('Suspense');
     case SuspenseListComponent:
       return describeBuiltInComponentFrame('SuspenseList');
+    case ViewTransitionComponent:
+      return describeBuiltInComponentFrame('ViewTransition');
     case FunctionComponent:
     case IndeterminateComponent:
     case SimpleMemoComponent:
@@ -108,6 +111,23 @@ export function getStackByFiberInDevAndProd(
   }
 }
 
+export function getSourceLocationByFiber(
+  workTagMap: WorkTagMap,
+  fiber: Fiber,
+  currentDispatcherRef: CurrentDispatcherRef,
+): null | string {
+  // This is like getStackByFiberInDevAndProd but just the first stack frame.
+  try {
+    const info = describeFiber(workTagMap, fiber, currentDispatcherRef);
+    if (info !== '') {
+      return info.slice(1); // skip the leading newline
+    }
+  } catch (x) {
+    console.error(x);
+  }
+  return null;
+}
+
 export function supportsConsoleTasks(fiber: Fiber): boolean {
   // If this Fiber supports native console.createTask then we are already running
   // inside a native async stack trace if it's active - meaning the DevTools is open.
@@ -133,6 +153,7 @@ export function getOwnerStackByFiberInDev(
     HostComponent,
     SuspenseComponent,
     SuspenseListComponent,
+    ViewTransitionComponent,
   } = workTagMap;
   try {
     let info = '';
@@ -159,6 +180,9 @@ export function getOwnerStackByFiberInDev(
         break;
       case SuspenseListComponent:
         info += describeBuiltInComponentFrame('SuspenseList');
+        break;
+      case ViewTransitionComponent:
+        info += describeBuiltInComponentFrame('ViewTransition');
         break;
     }
 

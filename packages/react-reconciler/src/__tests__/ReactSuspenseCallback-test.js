@@ -13,6 +13,7 @@ let React;
 let ReactNoop;
 let waitForAll;
 let act;
+let assertConsoleErrorDev;
 
 describe('ReactSuspense', () => {
   beforeEach(() => {
@@ -24,6 +25,7 @@ describe('ReactSuspense', () => {
     const InternalTestUtils = require('internal-test-utils');
     waitForAll = InternalTestUtils.waitForAll;
     act = InternalTestUtils.act;
+    assertConsoleErrorDev = InternalTestUtils.assertConsoleErrorDev;
   });
 
   function createThenable() {
@@ -46,7 +48,7 @@ describe('ReactSuspense', () => {
 
   // Warning don't fire in production, so this test passes in prod even if
   // the suspenseCallback feature is not enabled
-  // @gate www || !__DEV__
+  // @gate enableSuspenseCallback || !__DEV__
   it('check type', async () => {
     const {PromiseComp} = createThenable();
 
@@ -57,9 +59,10 @@ describe('ReactSuspense', () => {
     );
 
     ReactNoop.render(elementBadType);
-    await expect(async () => await waitForAll([])).toErrorDev([
-      'Unexpected type for suspenseCallback.',
-    ]);
+    await waitForAll([]);
+    assertConsoleErrorDev(['Unexpected type for suspenseCallback.'], {
+      withoutStack: true,
+    });
 
     const elementMissingCallback = (
       <React.Suspense fallback={'Waiting'}>
@@ -68,10 +71,11 @@ describe('ReactSuspense', () => {
     );
 
     ReactNoop.render(elementMissingCallback);
-    await expect(async () => await waitForAll([])).toErrorDev([]);
+    await waitForAll([]);
+    assertConsoleErrorDev([]);
   });
 
-  // @gate www
+  // @gate enableSuspenseCallback
   it('1 then 0 suspense callback', async () => {
     const {promise, resolve, PromiseComp} = createThenable();
 
@@ -98,7 +102,7 @@ describe('ReactSuspense', () => {
     expect(ops).toEqual([]);
   });
 
-  // @gate www
+  // @gate enableSuspenseCallback
   it('2 then 1 then 0 suspense callback', async () => {
     const {
       promise: promise1,
@@ -135,7 +139,11 @@ describe('ReactSuspense', () => {
     ReactNoop.render(element);
     await waitForAll([]);
     expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 1');
-    expect(ops).toEqual([new Set([promise2])]);
+    expect(ops).toEqual([
+      new Set([promise2]),
+
+      ...(gate('enableSiblingPrerendering') ? new Set([promise2]) : []),
+    ]);
     ops = [];
 
     await act(() => resolve2());
@@ -145,7 +153,7 @@ describe('ReactSuspense', () => {
     expect(ops).toEqual([]);
   });
 
-  // @gate www
+  // @gate enableSuspenseCallback
   it('nested suspense promises are reported only for their tier', async () => {
     const {promise, PromiseComp} = createThenable();
 
@@ -177,7 +185,7 @@ describe('ReactSuspense', () => {
     expect(ops2).toEqual([new Set([promise])]);
   });
 
-  // @gate www
+  // @gate enableSuspenseCallback
   it('competing suspense promises', async () => {
     const {
       promise: promise1,
@@ -223,7 +231,11 @@ describe('ReactSuspense', () => {
     await act(() => resolve1());
     expect(ReactNoop).toMatchRenderedOutput('Waiting Tier 2Done');
     expect(ops1).toEqual([]);
-    expect(ops2).toEqual([new Set([promise2])]);
+    expect(ops2).toEqual([
+      new Set([promise2]),
+
+      ...(gate('enableSiblingPrerendering') ? new Set([promise2]) : []),
+    ]);
     ops1 = [];
     ops2 = [];
 

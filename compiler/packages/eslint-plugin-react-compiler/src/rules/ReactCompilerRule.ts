@@ -15,10 +15,12 @@ import BabelPluginReactCompiler, {
   ErrorSeverity,
   parsePluginOptions,
   validateEnvironmentConfig,
+  OPT_OUT_DIRECTIVES,
   type PluginOptions,
 } from 'babel-plugin-react-compiler/src';
 import {Logger} from 'babel-plugin-react-compiler/src/Entrypoint';
 import type {Rule} from 'eslint';
+import {Statement} from 'estree';
 import * as HermesParser from 'hermes-parser';
 
 type CompilerErrorDetailWithLoc = Omit<CompilerErrorDetailOptions, 'loc'> & {
@@ -119,7 +121,7 @@ const rule: Rule.RuleModule = {
   },
   create(context: Rule.RuleContext) {
     // Compat with older versions of eslint
-    const sourceCode = context.sourceCode?.text ?? context.getSourceCode().text;
+    const sourceCode = context.sourceCode ?? context.getSourceCode();
     const filename = context.filename ?? context.getFilename();
     const userOpts = context.options[0] ?? {};
     if (
@@ -146,6 +148,7 @@ const rule: Rule.RuleModule = {
         userOpts['__unstable_donotuse_reportAllBailouts'];
     }
 
+    let shouldReportUnusedOptOutDirective = true;
     const options: PluginOptions = {
       ...parsePluginOptions(userOpts),
       ...COMPILER_OPTIONS,
@@ -155,6 +158,7 @@ const rule: Rule.RuleModule = {
       logEvent: (filename, event): void => {
         userLogger?.logEvent(filename, event);
         if (event.kind === 'CompileError') {
+          shouldReportUnusedOptOutDirective = false;
           const detail = event.detail;
           const suggest = makeSuggestions(detail);
           if (__unstable_donotuse_reportAllBailouts && event.fnLoc != null) {
@@ -162,12 +166,29 @@ const rule: Rule.RuleModule = {
               detail.loc != null && typeof detail.loc !== 'symbol'
                 ? ` (@:${detail.loc.start.line}:${detail.loc.start.column})`
                 : '';
+            /**
+             * Report bailouts with a smaller span (just the first line).
+             * Compiler bailout lints only serve to flag that a react function
+             * has not been optimized by the compiler for codebases which depend
+             * on compiler memo heavily for perf. These lints are also often not
+             * actionable.
+             */
+            let endLoc;
+            if (event.fnLoc.end.line === event.fnLoc.start.line) {
+              endLoc = event.fnLoc.end;
+            } else {
+              endLoc = {
+                line: event.fnLoc.start.line,
+                // Babel loc line numbers are 1-indexed
+                column: sourceCode.text.split(
+                  /\r?\n|\r|\n/g,
+                  event.fnLoc.start.line,
+                )[event.fnLoc.start.line - 1].length,
+              };
+            }
             const firstLineLoc = {
               start: event.fnLoc.start,
-              end: {
-                line: event.fnLoc.start.line,
-                column: 10e3,
-              },
+              end: endLoc,
             };
             context.report({
               message: `[ReactCompilerBailout] ${detail.reason}${locStr}`,
@@ -179,7 +200,10 @@ const rule: Rule.RuleModule = {
           if (!isReportableDiagnostic(detail)) {
             return;
           }
-          if (hasFlowSuppression(detail.loc, 'react-rule-hook')) {
+          if (
+            hasFlowSuppression(detail.loc, 'react-rule-hook') ||
+            hasFlowSuppression(detail.loc, 'react-rule-unsafe-ref')
+          ) {
             // If Flow already caught this error, we don't need to report it again.
             return;
           }
@@ -210,7 +234,6 @@ const rule: Rule.RuleModule = {
       nodeLoc: BabelSourceLocation,
       suppression: string,
     ): boolean {
-      const sourceCode = context.getSourceCode();
       const comments = sourceCode.getAllComments();
       const flowSuppressionRegex = new RegExp(
         '\\$FlowFixMe\\[' + suppression + '\\]',
@@ -230,7 +253,7 @@ const rule: Rule.RuleModule = {
     if (filename.endsWith('.tsx') || filename.endsWith('.ts')) {
       try {
         const {parse: babelParse} = require('@babel/parser');
-        babelAST = babelParse(sourceCode, {
+        babelAST = babelParse(sourceCode.text, {
           filename,
           sourceType: 'unambiguous',
           plugins: ['typescript', 'jsx'],
@@ -240,7 +263,7 @@ const rule: Rule.RuleModule = {
       }
     } else {
       try {
-        babelAST = HermesParser.parse(sourceCode, {
+        babelAST = HermesParser.parse(sourceCode.text, {
           babel: true,
           enableExperimentalComponentSyntax: true,
           sourceFilename: filename,
@@ -253,7 +276,7 @@ const rule: Rule.RuleModule = {
 
     if (babelAST != null) {
       try {
-        transformFromAstSync(babelAST, sourceCode, {
+        transformFromAstSync(babelAST, sourceCode.text, {
           filename,
           highlightCode: false,
           retainLines: true,
@@ -269,7 +292,52 @@ const rule: Rule.RuleModule = {
         /* errors handled by injected logger */
       }
     }
-    return {};
+
+    function reportUnusedOptOutDirective(stmt: Statement) {
+      if (
+        stmt.type === 'ExpressionStatement' &&
+        stmt.expression.type === 'Literal' &&
+        typeof stmt.expression.value === 'string' &&
+        OPT_OUT_DIRECTIVES.has(stmt.expression.value) &&
+        stmt.loc != null
+      ) {
+        context.report({
+          message: `Unused '${stmt.expression.value}' directive`,
+          loc: stmt.loc,
+          suggest: [
+            {
+              desc: 'Remove the directive',
+              fix(fixer) {
+                return fixer.remove(stmt);
+              },
+            },
+          ],
+        });
+      }
+    }
+    if (shouldReportUnusedOptOutDirective) {
+      return {
+        FunctionDeclaration(fnDecl) {
+          for (const stmt of fnDecl.body.body) {
+            reportUnusedOptOutDirective(stmt);
+          }
+        },
+        ArrowFunctionExpression(fnExpr) {
+          if (fnExpr.body.type === 'BlockStatement') {
+            for (const stmt of fnExpr.body.body) {
+              reportUnusedOptOutDirective(stmt);
+            }
+          }
+        },
+        FunctionExpression(fnExpr) {
+          for (const stmt of fnExpr.body.body) {
+            reportUnusedOptOutDirective(stmt);
+          }
+        },
+      };
+    } else {
+      return {};
+    }
   },
 };
 
